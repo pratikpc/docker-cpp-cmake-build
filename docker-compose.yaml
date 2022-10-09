@@ -1,0 +1,166 @@
+version: "3.9"
+services:
+
+  # Fix Ownership of Build Directory
+  # Thanks to Bug in Docker itself
+  # We need to use steps like this
+  # Because by default, the volume directory
+  # Is owned by Root
+  # So this helps correct it
+  change-cmake-cache-vol-ownership:
+    # We can use any image we want as long as we can chown
+    image: ubuntu
+    # Need a user priviliged enough to chown
+    user: "root"
+    # Specify the group in question
+    group_add:
+      - '${GROUP_ID}'
+    volumes:
+      # The volume to chown
+      - cmake-cache:/tmp/change-ownership
+    command: chown -R ${USER_ID}:${GROUP_ID} /tmp/change-ownership
+
+  ### Run with
+  ### USER_ID=$(id -u) GROUP_ID=$(id -g) docker-compose up configure
+  ### As we know every CMake image needs to be configured at least once
+  configure:
+    # Run this compose by ensuring user and group id were set properly
+    # Using
+    #   USER_ID=$(id -u) 
+    #   GROUP_ID=$(id -g)
+    # Before you run this
+    # This ensures that the build runs as our current user
+    # And not as root which is default
+    user: "${USER_ID}:${GROUP_ID}"
+    # Use the following to run as root
+    # user: root
+    build:
+      # Directory where to find the Docker file
+      context: .
+      dockerfile: Dockerfile
+      # The Multi Stage Build Stage to use
+      ## Using Ubuntu
+      target: ubuntu-builder
+
+    # The Folders to share
+    entrypoint: ["cmake","-S","/code","-B","/build"]
+
+    volumes:
+      # RO indicates that we are mounting as read only
+      # Which in Docker means writing here would lead to an error
+      - ./code-cmake:/code:ro
+      # Using Named Docker Volumes
+      # As there is no need to share this cache with the main machine
+      - cmake-cache:/build:z
+
+    # Thanks to Ownership issues on Docker    
+    # We need to first setup the volumes correctly
+    # And then execute build
+    # So that build is owned by our current user
+    # Rather than root as it is by default
+    depends_on:
+      change-cmake-cache-vol-ownership:
+        # Wait for the ownership to change
+        condition: service_completed_successfully
+
+  ### Run with
+  ### USER_ID=$(id -u) GROUP_ID=$(id -g) docker-compose up build
+  build:
+    # Run this compose by ensuring user and group id were set properly
+    # Using
+    #   USER_ID=$(id -u) 
+    #   GROUP_ID=$(id -g)
+    # Before you run this
+    # This ensures that the build runs as our current user
+    # And not as root which is default
+    user: "${USER_ID}:${GROUP_ID}"
+    # Use the following to run as root
+    # user: root
+    build:
+      # Directory where to find the Docker file
+      context: .
+      dockerfile: Dockerfile
+      # The Multi Stage Build Stage to use
+      ## Using Ubuntu
+      target: ubuntu-builder
+
+    # The Folders to share
+    entrypoint: ["cmake","--build","/build"]
+
+    volumes:
+      # RO indicates that we are mounting as read only
+      # Which in Docker means writing here would lead to an error
+      - ./code-cmake:/code:ro
+      # Using Named Docker Volumes
+      # As there is no need to share this cache with the main machine
+      - cmake-cache:/build:z
+
+    # Thanks to Ownership issues on Docker    
+    # We need to first setup the volumes correctly
+    # And then execute build
+    # So that build is owned by our current user
+    # Rather than root as it is by default
+    depends_on:
+      change-cmake-cache-vol-ownership:
+        # Wait for the ownership to change
+        condition: service_completed_successfully
+  
+  ### Run with
+  ### USER_ID=$(id -u) GROUP_ID=$(id -g) docker-compose up build
+  ### Our CMake code generates Makefiles
+  ### So instead of writing our own Makefile, lets save some time
+  make-build:
+    # Run this compose by ensuring user and group id were set properly
+    # Using
+    #   USER_ID=$(id -u) 
+    #   GROUP_ID=$(id -g)
+    # Before you run this
+    # This ensures that the build runs as our current user
+    # And not as root which is default
+    user: "${USER_ID}:${GROUP_ID}"
+    # Use the following to run as root
+    # user: root
+    build:
+      # Directory where to find the Docker file
+      context: .
+      dockerfile: Dockerfile
+      # The Multi Stage Build Stage to use
+      ## Using Ubuntu
+      target: ubuntu-builder
+
+    # The Folders to share
+    # entrypoint: ['bash','-c','ls -lArth /build;cat /build/Makefile']
+    entrypoint: ["make", "-C", "/build", "all"]
+
+    volumes:
+      # RO indicates that we are mounting as read only
+      # Which in Docker means writing here would lead to an error
+      - ./code-cmake:/code:z
+      # Using Named Docker Volumes
+      # As there is no need to share this cache with the main machine
+      - cmake-cache:/build:z
+
+    # Thanks to Ownership issues on Docker    
+    # We need to first setup the volumes correctly
+    # And then execute build
+    # So that build is owned by our current user
+    # Rather than root as it is by default
+    depends_on:
+      change-cmake-cache-vol-ownership:
+        # Wait for the ownership to change
+        condition: service_completed_successfully
+  
+  # Assuming this is not an Ubuntu system
+  run-ubuntu:
+    user: "${USER_ID}:${GROUP_ID}"
+    image: ubuntu
+    # This is not a fixed path
+    # Only works because we are using Makefile build here
+    entrypoint: ["/build/Hello-Docker"]
+    volumes:
+      # Using Named Docker Volumes
+      # As there is no need to share this cache with the main machine
+      - cmake-cache:/build:z
+
+volumes:
+  cmake-cache:
